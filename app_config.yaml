@@ -1,0 +1,9 @@
+title: Document Classification OpenEnv
+description: A real-world OpenEnv environment for document classification and routing
+app_file: app.py
+sdk: docker
+sdk_version: latest
+python_version: "3.9"
+docker:
+  dockerfile: Dockerfile
+  base_image: python:3.9-slim

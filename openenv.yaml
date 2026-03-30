@@ -1,0 +1,234 @@
+name: document-classification-env
+version: 1.0.0
+description: >
+  A real-world document classification and routing environment where AI agents 
+  learn to classify documents and route them to appropriate departments with 
+  optimal speed and accuracy tradeoffs.
+
+author: OpenEnv Community
+license: MIT
+
+# Environment specification
+environment:
+  id: DocumentClassification-v1
+  entry_point: environment:DocumentClassificationEnv
+  
+  # Observation space definition
+  observation_space:
+    type: dict
+    properties:
+      document_id:
+        type: string
+        description: Unique identifier for the document
+      content:
+        type: string
+        description: Raw text content of the document
+      word_count:
+        type: integer
+        description: Number of words in the document
+        min: 0
+      has_urgency_markers:
+        type: boolean
+        description: Whether document contains urgency indicators
+      features:
+        type: array
+        items:
+          type: number
+        description: Pre-extracted TF-IDF features (normalized)
+        shape: [100]  # 100-dimensional feature vector
+  
+  # Action space definition
+  action_space:
+    type: discrete
+    description: Category selection for document routing
+    # Values depend on difficulty level
+    # Easy: 5 categories, Medium: 10 categories, Hard: 20 categories
+
+# Tasks definition
+tasks:
+  - id: easy
+    name: Document Classification - Easy
+    difficulty: easy
+    description: >
+      Classify pre-processed documents into 5 categories with no time constraints.
+      Documents are pre-extracted and normalized. This task serves as an introduction
+      to the environment and API.
+    
+    parameters:
+      num_documents: 100
+      num_categories: 5
+      categories:
+        - General
+        - Billing
+        - Support
+        - Technical
+        - HR
+      time_limit_per_action: null
+      time_limit_per_episode: null
+    
+    grading:
+      type: accuracy_based
+      success_threshold: 0.95
+      test_dataset_size: 100
+      metrics:
+        - accuracy
+        - precision_per_category
+        - recall_per_category
+  
+  - id: medium
+    name: Document Classification - Medium
+    difficulty: medium
+    description: >
+      Classify raw text documents into 10 categories with moderate complexity.
+      Includes time constraints per action. Requires the agent to balance
+      processing time with accuracy.
+    
+    parameters:
+      num_documents: 500
+      num_categories: 10
+      categories:
+        - General
+        - Billing
+        - Billing-Dispute
+        - Support
+        - Technical
+        - Technical-Bug
+        - HR-Payroll
+        - HR-Benefits
+        - Legal
+        - Executive
+      time_limit_per_action: 2.0  # seconds
+      time_limit_per_episode: 1800  # 30 minutes for full dataset
+    
+    grading:
+      type: accuracy_with_time_bonus
+      success_threshold: 0.85
+      test_dataset_size: 500
+      metrics:
+        - accuracy
+        - average_response_time
+        - speed_efficiency_ratio
+        - precision_per_category
+        - recall_per_category
+  
+  - id: hard
+    name: Document Classification - Hard
+    difficulty: hard
+    description: >
+      Classify complex documents into 20 fine-grained categories with 
+      challenging real-world scenarios. Tight time constraints create
+      speed-accuracy tradeoffs. Documents may contain mixed formats
+      and ambiguous classification cases.
+    
+    parameters:
+      num_documents: 1000
+      num_categories: 20
+      categories:
+        - General
+        - Billing
+        - Billing-Dispute
+        - Billing-Refund
+        - Support-Urgent
+        - Support-Normal
+        - Technical
+        - Technical-Bug
+        - Technical-Feature
+        - HR-Payroll
+        - HR-Benefits
+        - HR-Complaint
+        - Legal
+        - Legal-Contract
+        - Legal-Compliance
+        - Executive
+        - Executive-Strategic
+        - Finance
+        - Marketing
+        - Operations
+      time_limit_per_action: 1.0  # seconds
+      time_limit_per_episode: 1200  # 20 minutes for full dataset
+    
+    grading:
+      type: accuracy_with_speed_cost
+      success_threshold: 0.75
+      test_dataset_size: 1000
+      metrics:
+        - accuracy
+        - response_time
+        - speed_accuracy_tradeoff_score
+        - confusion_matrix
+        - f1_score_macro
+        - f1_score_weighted
+
+# Reward function specification
+reward:
+  type: composite
+  description: >
+    Composite reward combining accuracy, speed, and penalizing errors.
+    The exact calculation depends on task difficulty.
+  
+  components:
+    - name: accuracy_bonus
+      description: Positive reward for correct classification
+      weight: 0.7
+      value_range: [0, 1]
+    
+    - name: speed_bonus
+      description: Bonus reward for fast decision making
+      weight: 0.2
+      value_range: [0, 0.2]
+      scales_with: response_time_efficiency
+    
+    - name: error_penalty
+      description: Penalty for incorrect classification
+      weight: 0.1
+      value_range: [-0.5, 0]
+    
+    - name: processing_cost
+      description: Small deduction for resource usage (hard task only)
+      weight: 0.0
+      task_specific: hard
+      value_range: [-0.1, 0]
+
+# Episode structure
+episode:
+  max_steps: null  # No step limit, episode ends when all documents processed
+  reset_regenerates_data: true
+  observation_includes_progress: true
+  done_conditions:
+    - all_documents_classified
+    - time_limit_exceeded
+    - manual_termination
+
+# Baseline performance targets
+baseline_targets:
+  easy:
+    score: 0.78
+    accuracy: 0.78
+    time_per_action_ms: 50
+  
+  medium:
+    score: 0.65
+    accuracy: 0.68
+    time_per_action_ms: 150
+    speed_bonus: 0.15
+  
+  hard:
+    score: 0.52
+    accuracy: 0.55
+    time_per_action_ms: 100
+    accuracy_std_dev: 0.05
+
+# Reproducibility settings
+reproducibility:
+  seed_controllable: true
+  deterministic_data_generation: true
+  deterministic_grading: true
+  fixed_test_sets: true
+
+# Deployment settings
+deployment:
+  containerized: true
+  docker_image: doc-classifier-env:latest
+  huggingface_spaces: true
+  api_endpoint: /api/step
+  inference_framework: gymnasium_compatible
