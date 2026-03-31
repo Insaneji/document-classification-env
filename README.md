@@ -1,3 +1,10 @@
+---
+title: Document Classification Env
+sdk: docker
+pinned: false
+tags:
+- openenv
+---
 # Document Classification OpenEnv Environment
 
 A complete, real-world OpenEnv environment for training AI agents on document classification and routing tasks. This environment implements the full OpenEnv specification with typed models, reproducible grading, and progressive difficulty levels.
@@ -198,3 +205,4 @@ Contributions welcome. Please ensure all changes maintain OpenEnv spec complianc
 ---
 
 Built with ❤️ for AI agent training and evaluation.
+
