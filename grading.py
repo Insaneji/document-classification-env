@@ -164,7 +164,7 @@ class AgentGrader:
             time_bonus = 0.0
             avg_time = metrics["average_processing_time_ms"]
             if avg_time < 100:
-                time_bonus = min(0.2, avg_time / 1000)
+                time_bonus = 0.25
             elif avg_time < 300:
                 time_bonus = 0.1
             
