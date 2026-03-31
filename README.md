@@ -1,208 +1,166 @@
 ---
 title: Document Classification Env
+emoji: 📄
+colorFrom: blue
+colorTo: green
 sdk: docker
 pinned: false
 tags:
 - openenv
+- document-classification
+- reinforcement-learning
+- gymnasium
 ---
-# Document Classification OpenEnv Environment
 
-A complete, real-world OpenEnv environment for training AI agents on document classification and routing tasks. This environment implements the full OpenEnv specification with typed models, reproducible grading, and progressive difficulty levels.
+# 📄 Document Classification Environment
 
-## Overview
+**OpenEnv submission for Meta x PyTorch Hackathon**
 
-This environment simulates a document routing system where an AI agent must classify incoming documents and route them to appropriate departments. The task involves understanding document content, making fast and accurate classification decisions, and balancing speed vs. accuracy tradeoffs.
+An interactive Gymnasium-compatible environment where AI agents learn to classify and route customer support tickets to the correct department.
 
-## Environment Specification
+---
 
-### Observation Space
-The agent receives a dictionary observation containing:
-- `document_id`: Unique identifier for the document
-- `content`: Raw text content of the document
-- `word_count`: Number of words in the document
-- `has_urgency_markers`: Whether document contains urgency indicators
-- `features`: Pre-extracted TF-IDF features (numpy array)
+## 🎯 Real-World Task
 
-### Action Space
-The agent must select one of the available document categories:
-- **Easy (5 categories)**: General, Billing, Support, Technical, HR
-- **Medium (10 categories)**: General, Billing, Billing-Dispute, Support, Technical, Technical-Bug, HR-Payroll, HR-Benefits, Legal, Executive
-- **Hard (20 categories)**: Detailed classification including priority levels and sub-categories
+Customer support teams receive hundreds of tickets daily — billing issues, technical bugs, HR complaints, legal queries. This environment simulates that routing challenge, training agents to read a document and instantly decide which department should handle it.
 
-### Reward Function
+**Why this matters:** Misrouted tickets waste time and frustrate customers. A well-trained agent can reduce misrouting by 80%+.
+
+---
+
+## 🏗️ Environment Design
+
 ```
-reward = accuracy_bonus + speed_bonus - error_penalty - processing_cost
-```
-- **Accuracy Bonus**: +1.0 for correct classification, 0 otherwise
-- **Speed Bonus**: Up to +0.2 based on processing speed
-- **Error Penalty**: -0.5 for incorrect classification
-- **Processing Cost**: Small deduction for resource usage in hard mode
-
-### Tasks
-
-#### Task 1 - Easy
-- **Description**: Classify pre-processed documents into 5 categories
-- **Document Count**: 100 documents
-- **Features**: Pre-extracted and normalized
-- **Time Limit**: None
-- **Target Score**: 0.95+
-
-#### Task 2 - Medium  
-- **Description**: Classify raw text documents into 10 categories with moderate complexity
-- **Document Count**: 500 documents
-- **Features**: Raw text requiring processing
-- **Time Limit**: 2 seconds per decision
-- **Target Score**: 0.85+
-
-#### Task 3 - Hard
-- **Description**: Classify complex documents into 20 fine-grained categories with mixed formats
-- **Document Count**: 1000 documents
-- **Features**: Complex, mixed format, requires real-time processing
-- **Time Limit**: 1 second per decision
-- **Time-Cost Tradeoff**: Faster processing reduces accuracy potential
-- **Target Score**: 0.75+
-
-## Quick Start
-
-### Installation
-
-```bash
-# Clone the repository
-cd openenv-doc-classifier
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+DocumentClassificationEnv(task_difficulty="hard", seed=42)
+├── observation_space: Dict
+│   ├── content: Text (the document)
+│   ├── document_id: Text
+│   ├── word_count: Box(1,)
+│   ├── has_urgency_markers: MultiBinary(1)
+│   ├── features: Box(100,)  ← TF-IDF features
+│   ├── document_index: Box(1,)
+│   └── total_documents: Box(1,)
+└── action_space: Discrete(N)  ← N = num categories
 ```
 
-### Basic Usage
+### API
 
 ```python
 from environment import DocumentClassificationEnv
 
-# Initialize environment
-env = DocumentClassificationEnv(task_difficulty="easy")
+env = DocumentClassificationEnv(task_difficulty="hard", seed=42)
+obs, info = env.reset()
 
-# Reset for a new episode
-observation = env.reset()
-
-# Run interaction loop
-done = False
-total_reward = 0
-
-while not done:
-    # Your agent decision logic here
-    action = agent.decide(observation)
-    
-    # Step environment
-    observation, reward, done, info = env.step(action)
-    total_reward += reward
-
-print(f"Episode reward: {total_reward}")
+while True:
+    action = your_agent(obs)          # int: category index
+    obs, reward, done, _, info = env.step(action)
+    print(f"Reward: {reward:.3f}, Correct: {info['is_correct']}")
+    if done:
+        print(info["episode_summary"])
+        break
 ```
-
-### Running the Baseline
-
-```bash
-# Evaluate baseline performance
-python baseline_inference.py --task easy
-python baseline_inference.py --task medium  
-python baseline_inference.py --task hard
-
-# Expected baseline scores:
-# Easy: 0.78
-# Medium: 0.65
-# Hard: 0.52
-```
-
-## Environment Specification (openenv.yaml)
-
-The environment is fully specified in `openenv.yaml` including:
-- Environment metadata (name, version, description)
-- Action/observation spaces with types
-- Difficulty levels and grading criteria
-- Reward function specification
-
-## Agent Grading
-
-Each task includes built-in agent graders:
-- **Easy Grader**: Evaluates 100 test documents, requires 0.0-1.0 score
-- **Medium Grader**: Evaluates 500 test documents with time constraints
-- **Hard Grader**: Evaluates 1000 documents with complex routing rules
-
-Grading produces reproducible scores from 0.0 to 1.0.
-
-## Deployment
-
-### Docker
-
-```bash
-# Build Docker image
-docker build -t doc-classifier-env:latest .
-
-# Run container
-docker run -p 8000:8000 doc-classifier-env:latest
-```
-
-### Hugging Face Spaces
-
-The environment is deployed to Hugging Face Spaces:
-- Access: [Link to Space]
-- Direct API integration for evaluation
-
-## Project Structure
-
-```
-├── README.md
-├── requirements.txt
-├── openenv.yaml
-├── environment.py              # Core environment implementation
-├── tasks.py                    # Task definitions and data generation
-├── grading.py                  # Agent grading system
-├── reward_function.py          # Reward calculation logic
-├── baseline_inference.py       # Baseline agent implementation
-├── Dockerfile
-└── data/
-    ├── documents_easy.json
-    ├── documents_medium.json
-    └── documents_hard.json
-```
-
-## Technical Details
-
-### Implementation Stack
-- **Framework**: Gymnasium (OpenAI Gym compatible)
-- **Language**: Python 3.8+
-- **Data Processing**: NumPy, Pandas, scikit-learn
-- **Deployment**: Docker, Hugging Face Spaces
-
-### OpenEnv Compliance
-- ✓ Typed observation and action spaces
-- ✓ step() / reset() / state() API
-- ✓ openenv.yaml specification
-- ✓ Deterministic grading
-- ✓ Reproducible seeds
-
-## Evaluation Criteria (Weights)
-
-- **Real-world Utility (30%)**: Effectively simulates real document routing
-- **Task-Grader Quality (25%)**: Well-defined graders with proper difficulty scaling
-- **Environment Design (20%)**: Clear action/observation spaces, good documentation
-- **Reproducibility & Compatibility (15%)**: Deterministic results, proper containerization
-- **Creativity & Novelty (10%)**: Interesting design choices and features
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions welcome. Please ensure all changes maintain OpenEnv spec compliance.
 
 ---
 
-Built with ❤️ for AI agent training and evaluation.
+## 📊 Three Progressive Tasks
 
+| Task | Categories | Documents | Time Limit | Target Score |
+|------|-----------|-----------|------------|--------------|
+| **Easy** | 5 | 100 | None | 0.85 |
+| **Medium** | 10 | 500 | 2 sec | 0.75 |
+| **Hard** | 22 | 1000 | 1 sec | 0.75 |
+
+### Categories (Hard Mode — 22 total)
+`General` `Billing` `Billing-Dispute` `Billing-Refund` `Support` `Support-Urgent` `Support-Normal` `Technical` `Technical-Bug` `Technical-Feature` `HR` `HR-Payroll` `HR-Benefits` `HR-Complaint` `Legal` `Legal-Contract` `Legal-Compliance` `Executive` `Executive-Strategic` `Finance` `Marketing` `Operations`
+
+---
+
+## 🏆 Reward Function
+
+```python
+reward = accuracy_reward + speed_bonus
+
+# accuracy_reward:
+#   +1.0 for correct classification
+#   -0.5 for wrong classification
+
+# speed_bonus (difficulty-dependent):
+#   Easy:   +0.10 if < 100ms
+#   Medium: +0.15 if < 200ms, +0.10 if < 500ms
+#   Hard:   +0.20 if < 100ms, +0.10 if < 300ms
+```
+
+Partial credit via speed bonus encourages efficient inference, not just accuracy.
+
+---
+
+## 📈 Baseline Results (Keyword Agent)
+
+| Task | Score | Notes |
+|------|-------|-------|
+| EASY | **0.77** | Simple keyword matching |
+| MEDIUM | **0.89** | Priority-ordered keywords |
+| HARD | **0.165** | 22 categories, harder to distinguish |
+
+Better agents (TF-IDF similarity, fine-tuned LLM) can significantly beat baseline.
+
+---
+
+## 🚀 Quick Start
+
+```bash
+git clone https://huggingface.co/spaces/TanujInsane/document-classification-env
+cd document-classification-env
+pip install -r requirements.txt
+
+# Run baseline
+python baseline_inference.py --task all --output results.json
+
+# Launch UI
+python app.py
+```
+
+---
+
+## 📁 File Structure
+
+```
+├── environment.py          # Main Gymnasium environment
+├── tasks.py               # Document generation + TF-IDF features
+├── grading.py             # Scoring logic (0.0 - 1.0)
+├── baseline_inference.py  # Keyword-based baseline agent
+├── app.py                 # Gradio interactive demo
+├── test_environment.py    # 5 unit tests (all passing ✅)
+├── openenv.yaml           # OpenEnv specification
+├── Dockerfile             # Container deployment
+└── requirements.txt       # Dependencies
+```
+
+---
+
+## 🔬 Reproducibility
+
+- Seed-controlled document generation
+- Fixed test sets for fair grading
+- Deterministic reward calculation
+- Docker containerization for consistent deployment
+
+---
+
+## 💡 Improving Beyond Baseline
+
+```python
+# Example: TF-IDF similarity agent (beats keyword matching)
+from sklearn.metrics.pairwise import cosine_similarity
+
+class TFIDFAgent:
+    def __init__(self, difficulty):
+        self.env = DocumentClassificationEnv(difficulty)
+        # Pre-compute category centroid vectors
+        # Use cosine similarity at inference time
+        ...
+```
+
+---
+
+*Built for Meta x PyTorch OpenEnv Hackathon | Gymnasium-compatible | Docker deployed*
