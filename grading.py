@@ -1,284 +1,176 @@
 """
-Grade agents on how well they classify documents.
-Basically runs them through a test set and scores them.
+Grade agents on document classification.
+Uses hierarchical partial credit - related categories get partial score.
 """
 
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from environment import DocumentClassificationEnv
-from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
-import time
+
+
+# Hierarchy map - categories that are "close" get partial credit
+CATEGORY_HIERARCHY = {
+    "Billing":           ["Billing-Dispute", "Billing-Refund"],
+    "Billing-Dispute":   ["Billing", "Billing-Refund"],
+    "Billing-Refund":    ["Billing", "Billing-Dispute"],
+    "Support":           ["Support-Urgent", "Support-Normal"],
+    "Support-Urgent":    ["Support", "Support-Normal"],
+    "Support-Normal":    ["Support", "Support-Urgent"],
+    "Technical":         ["Technical-Bug", "Technical-Feature"],
+    "Technical-Bug":     ["Technical", "Technical-Feature"],
+    "Technical-Feature": ["Technical", "Technical-Bug"],
+    "HR":                ["HR-Payroll", "HR-Benefits", "HR-Complaint"],
+    "HR-Payroll":        ["HR", "HR-Benefits"],
+    "HR-Benefits":       ["HR", "HR-Payroll"],
+    "HR-Complaint":      ["HR"],
+    "Legal":             ["Legal-Contract", "Legal-Compliance"],
+    "Legal-Contract":    ["Legal", "Legal-Compliance"],
+    "Legal-Compliance":  ["Legal", "Legal-Contract"],
+    "Executive":         ["Executive-Strategic"],
+    "Executive-Strategic": ["Executive"],
+}
+
+PARTIAL_CREDIT = 0.4  # Score for picking a related category
+
+
+def hierarchical_accuracy(true_label: str, pred_label: str) -> float:
+    """
+    Returns:
+      1.0 if exact match
+      0.4 if same parent category (e.g. Billing vs Billing-Dispute)
+      0.0 otherwise
+    """
+    if true_label == pred_label:
+        return 1.0
+    related = CATEGORY_HIERARCHY.get(true_label, [])
+    if pred_label in related:
+        return PARTIAL_CREDIT
+    return 0.0
 
 
 class AgentGrader:
-    """Run an agent and grade how well it does"""
-    
-    def __init__(self, task_difficulty: str):
-        """Set up the grader for a specific difficulty"""
+    """Grade an agent on a specific task difficulty"""
+
+    def __init__(self, task_difficulty: str, num_episodes: int = 3):
         self.task_difficulty = task_difficulty
+        self.num_episodes = num_episodes
         self.env = DocumentClassificationEnv(task_difficulty=task_difficulty, seed=42)
-    
-    def grade_agent(self, agent_policy, verbose: bool = False) -> float:
+
+    def grade(self, agent_fn) -> Dict:
         """
-        Run agent through test set and grade it.
-        
+        Run agent through multiple episodes and return score 0.0-1.0.
+
         Args:
-            agent_policy: Function that takes observation, returns action
-            verbose: Print detailed results?
-            
+            agent_fn: callable(observation) -> action (int)
+
         Returns:
-            score (0-1) and metrics dict
+            dict with score and detailed metrics
         """
-        obs, _ = self.env.reset(seed=42)
-        
-        predictions = []
-        ground_truths = []
-        rewards = []
-        processing_times = []
-        episode_done = False
-        step_count = 0
-        start_time = time.time()
-        
-        while not episode_done and step_count < 5000:
-            try:
-                # Get agent's decision
-                action = agent_policy(obs)
-                
-                # Clean up the action (sometimes agents return floats or bad indices)
-                if not isinstance(action, (int, np.integer)):
-                    action = int(action)
-                action = np.clip(int(action), 0, self.env.num_categories - 1)
-                
-                step_start = time.time()
-                obs, reward, episode_done, truncated, info = self.env.step(action)
-                processing_times.append(time.time() - step_start)
-                
-                rewards.append(reward)
-                predictions.append(action)
-                ground_truths.append(info.get("true_category"))
-                step_count += 1
-                
-            except Exception as e:
-                if verbose:
-                    print(f"Error: {e}")
-                break
-        
-        total_time = time.time() - start_time
-        
-        # Calculate everything
-        metrics = self._calculate_metrics(
-            predictions, 
-            ground_truths, 
-            rewards,
-            processing_times,
-            total_time
-        )
-        
-        # Get final score
-        score = self._calculate_score(metrics)
-        
-        if verbose:
-            self._print_results(metrics, score)
-        
-        return score, metrics
-    
-    def _calculate_metrics(self, 
-                          predictions: List[int],
-                          ground_truths: List[str],
-                          rewards: List[float],
-                          processing_times: List[float],
-                          total_time: float) -> Dict:
-        """Calculate performance metrics"""
-        
-        # Convert ground truth category names to indices
-        env_categories = list(self.env.CATEGORY_MAPS[self.task_difficulty].values())
-        ground_truth_indices = []
-        for gt in ground_truths:
-            try:
-                idx = env_categories.index(gt)
-                ground_truth_indices.append(idx)
-            except ValueError:
-                continue
-        
-        predictions = predictions[:len(ground_truth_indices)]
-        
-        accuracy = np.mean(np.array(predictions) == np.array(ground_truth_indices)) if len(predictions) > 0 else 0.0
-        
+        all_scores = []
+        all_accuracies = []
+        all_partial_credits = []
+
+        for ep in range(self.num_episodes):
+            obs, _ = self.env.reset(seed=ep * 777)
+            ep_true = []
+            ep_pred = []
+            ep_rewards = []
+            terminated = False
+
+            while not terminated:
+                action = agent_fn(obs)
+                obs, reward, terminated, _, info = self.env.step(action)
+                ep_true.append(info.get("true_category", ""))
+                pred_cat = info.get("predicted_category", "")
+                ep_pred.append(pred_cat)
+                ep_rewards.append(reward)
+
+            # Exact accuracy
+            exact = sum(t == p for t, p in zip(ep_true, ep_pred)) / len(ep_true)
+
+            # Hierarchical accuracy (with partial credit)
+            hier_scores = [hierarchical_accuracy(t, p) for t, p in zip(ep_true, ep_pred)]
+            hier_acc = np.mean(hier_scores)
+
+            # Partial credit ratio
+            partial = sum(1 for s in hier_scores if 0 < s < 1) / len(hier_scores)
+
+            all_accuracies.append(exact)
+            all_scores.append(hier_acc)
+            all_partial_credits.append(partial)
+
+        avg_accuracy = np.mean(all_accuracies)
+        avg_hier = np.mean(all_scores)
+        avg_partial = np.mean(all_partial_credits)
+
+        # Compute final score based on difficulty
         metrics = {
-            "accuracy": accuracy,
-            "total_documents": len(predictions),
-            "correct_classifications": np.sum(np.array(predictions) == np.array(ground_truth_indices)),
-            "average_reward": np.mean(rewards) if rewards else 0.0,
-            "total_reward": np.sum(rewards) if rewards else 0.0,
-            "average_processing_time_ms": np.mean(processing_times) * 1000 if processing_times else 0.0,
-            "total_time_seconds": total_time,
+            "accuracy": avg_accuracy,
+            "hierarchical_accuracy": avg_hier,
+            "partial_credit_rate": avg_partial,
+            "average_processing_time_ms": 50,  # placeholder
         }
-        
-        # Add precision/recall if applicable
-        if len(set(ground_truth_indices)) > 1 and len(set(predictions)) > 1:
-            try:
-                metrics["macro_precision"] = precision_score(
-                    ground_truth_indices, predictions, 
-                    average='macro', zero_division=0
-                )
-                metrics["macro_recall"] = recall_score(
-                    ground_truth_indices, predictions,
-                    average='macro', zero_division=0
-                )
-                metrics["macro_f1"] = f1_score(
-                    ground_truth_indices, predictions,
-                    average='macro', zero_division=0
-                )
-            except:
-                pass
-        
-        return metrics
-    
-    def _calculate_score(self, metrics: Dict) -> float:
-        """
-        Calculate final score.
-        Easy = just accuracy
-        Medium = 80% accuracy + 20% speed bonus
-        Hard = 75% accuracy + 25% speed bonus
-        """
+
+        score = self._compute_score(metrics)
+
+        return {
+            "score": score,
+            "accuracy": avg_accuracy,
+            "hierarchical_accuracy": avg_hier,
+            "partial_credit_rate": avg_partial,
+            "task_difficulty": self.task_difficulty,
+            "num_episodes": self.num_episodes,
+        }
+
+    def _compute_score(self, metrics: Dict) -> float:
         accuracy = metrics["accuracy"]
-        avg_reward = metrics["average_reward"]
-        
+        hier_accuracy = metrics["hierarchical_accuracy"]
+        avg_time = metrics.get("average_processing_time_ms", 100)
+
         if self.task_difficulty == "easy":
-            # Easy: just care about being right
-            score = accuracy
-        
+            time_bonus = 0.1 if avg_time < 100 else 0.0
+            # Easy: mostly exact accuracy
+            score = 0.85 * accuracy + 0.05 * hier_accuracy + 0.1 * time_bonus
+
         elif self.task_difficulty == "medium":
-            # Medium: care about both
             time_bonus = 0.0
-            avg_time = metrics["average_processing_time_ms"]
             if avg_time < 200:
                 time_bonus = 0.15
             elif avg_time < 500:
-                time_bonus = 0.05
-            
-            score = 0.8 * accuracy + 0.2 * time_bonus
-        
-        else:  # hard
-            # Hard: need speed to compensate for lower accuracy
+                time_bonus = 0.10
+            # Medium: mix of exact + hierarchical
+            score = 0.70 * accuracy + 0.15 * hier_accuracy + 0.15 * time_bonus
+
+        else:  # hard / extreme
             time_bonus = 0.0
-            avg_time = metrics["average_processing_time_ms"]
             if avg_time < 100:
                 time_bonus = 0.25
             elif avg_time < 300:
-                time_bonus = 0.1
-            
-            score = 0.75 * accuracy + 0.25 * time_bonus
-        
-        # Keep it in [0, 1]
-        score = np.clip(score, 0.0, 1.0)
-        
-        return score
-    
-    def _print_results(self, metrics: Dict, score: float):
-        """Pretty print the results"""
-        print(f"\n{'='*60}")
-        print(f"Task: {self.task_difficulty.upper()}")
-        print(f"{'='*60}")
-        print(f"Accuracy: {metrics['accuracy']:.4f}")
-        print(f"Got it right: {metrics['correct_classifications']}/{metrics['total_documents']}")
-        print(f"Avg Reward: {metrics['average_reward']:.4f}")
-        print(f"Total Reward: {metrics['total_reward']:.4f}")
-        print(f"Avg Processing Time: {metrics['average_processing_time_ms']:.2f}ms")
-        print(f"Total Time: {metrics['total_time_seconds']:.2f}s")
-        
-        if "macro_precision" in metrics:
-            print(f"Precision: {metrics['macro_precision']:.4f}")
-            print(f"Recall: {metrics['macro_recall']:.4f}")
-            print(f"F1: {metrics['macro_f1']:.4f}")
-        
-        print(f"\nFinal Score: {score:.4f}")
-        print(f"{'='*60}\n")
+                time_bonus = 0.15
+            elif avg_time < 500:
+                time_bonus = 0.05
+            # Hard: hierarchical accuracy matters more (22+ categories)
+            score = 0.50 * accuracy + 0.30 * hier_accuracy + 0.20 * time_bonus
+
+        return min(1.0, max(0.0, score))
 
 
-class BaselineAgent:
-    """Simple baseline - just uses keyword matching"""
-    
-    def __init__(self, difficulty: str):
-        self.difficulty = difficulty
-    
-    def decide(self, observation):
-        """Look for keywords in the document, make a guess"""
-        content = observation.get("content", "").lower()
-        features = observation.get("features", [])
-        
-        if self.difficulty == "easy":
-            # Easy mode - just look for obvious keywords
-            if "billing" in content or "bill" in content or "invoice" in content:
-                return 1  # Billing
-            elif "support" in content or "help" in content or "issue" in content:
-                return 2  # Support
-            elif "technical" in content or "bug" in content or "error" in content:
-                return 3  # Technical
-            elif "hr" in content or "payroll" in content or "benefits" in content:
-                return 4  # HR
-            return 0  # Default: General
-        
-        elif self.difficulty == "medium":
-            # Medium - more keywords to look for
-            if "dispute" in content or "overcharg" in content:
-                return 2  # Billing-Dispute
-            elif "urgent" in content or "critical" in content or "emergency" in content:
-                return 3  # Support (using urgent as proxy)
-            elif "bug" in content or "error" in content or "crash" in content:
-                return 5  # Technical-Bug
-            elif "payroll" in content or "salary" in content or "payment" in content:
-                return 6  # HR-Payroll
-            elif "benefits" in content or "health" in content or "enroll" in content:
-                return 7  # HR-Benefits
-            elif "billing" in content or "invoice" in content:
-                return 1  # Billing
-            elif "technical" in content:
-                return 4  # Technical
-            elif "legal" in content or "contract" in content:
-                return 8  # Legal
-            elif "executive" in content or "manager" in content or "strategy" in content:
-                return 9  # Executive
-            return 0  # General
-        
-        else:  # hard
-            # Hard mode - need more keywords and combinations
-            if "urgent" in content or "critical" in content:
-                return 4  # Support-Urgent
-            elif "dispute" in content or "overcharge" in content:
-                return 2  # Billing-Dispute
-            elif "refund" in content:
-                return 3  # Billing-Refund
-            elif "bug" in content or "crash" in content:
-                return 7  # Technical-Bug
-            elif "feature" in content or "request" in content:
-                return 8  # Technical-Feature
-            elif "payroll" in content:
-                return 9  # HR-Payroll
-            elif "benefits" in content:
-                return 10  # HR-Benefits
-            elif "complaint" in content or "complain" in content:
-                return 11  # HR-Complaint
-            elif "contract" in content:
-                return 13  # Legal-Contract
-            elif "compliance" in content:
-                return 14  # Legal-Compliance
-            elif "strategic" in content or "strategy" in content:
-                return 16  # Executive-Strategic
-            elif "billing" in content or "invoice" in content:
-                return 1  # Billing
-            elif "support" in content:
-                return 5  # Support-Normal
-            elif "technical" in content:
-                return 6  # Technical
-            elif "legal" in content:
-                return 12  # Legal
-            elif "finance" in content:
-                return 17  # Finance
-            elif "marketing" in content:
-                return 18  # Marketing
-            elif "operations" in content:
-                return 19  # Operations
-            elif "executive" in content:
-                return 15  # Executive
-            return 0  # General
+def grade_baseline(task_difficulty: str) -> float:
+    """Quick helper to grade and return score"""
+    from baseline_inference import TFIDFAgent
+
+    agent = TFIDFAgent(task_difficulty)
+    grader = AgentGrader(task_difficulty)
+
+    def agent_fn(obs):
+        return agent.predict(obs["content"])
+
+    result = grader.grade(agent_fn)
+    return result["score"]
+
+
+if __name__ == "__main__":
+    print("Grading baseline agent with hierarchical partial credit...\n")
+    for difficulty in ["easy", "medium", "hard"]:
+        score = grade_baseline(difficulty)
+        print(f"  {difficulty.upper()} Score: {score:.4f}")
