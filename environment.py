@@ -66,7 +66,9 @@ class DocumentClassificationEnv(gym.Env):
             16: "Executive-Strategic",  # Big picture stuff
             17: "Finance",
             18: "Marketing",
-            19: "Operations"
+            19: "Operations",
+            20: "HR",
+            21: "Support"
         }
     }
     
@@ -334,3 +336,5 @@ if __name__ == "__main__":
         if done:
             print(f"Episode complete: {info['episode_summary']}")
             break
+
+
