@@ -27,4 +27,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import gymnasium; from environment import DocumentClassificationEnv; env = DocumentClassificationEnv('easy'); print('OK')" || exit 1
 
 # Default command - can be overridden
-CMD ["python", "baseline_inference.py", "--task", "all", "--output", "baseline_results.json"]
+CMD ["python", "app.py"]
