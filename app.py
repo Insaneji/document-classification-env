@@ -7,17 +7,7 @@ import gradio as gr
 import json
 import time
 from environment import DocumentClassificationEnv
-
-
-
-def predict_category(obs, difficulty):
-    from tasks import TaskDataGenerator
-    gen = TaskDataGenerator(difficulty, seed=42)
-    tc = obs.get('true_category', '') if isinstance(obs, dict) else ''
-    try:
-        return gen.categories.index(tc)
-    except (ValueError, AttributeError):
-        return 0
+from baseline_inference import keyword_agent
 
 # Global state
 current_env = None
@@ -110,7 +100,7 @@ def auto_classify():
     if current_env is None or current_obs is None:
         return "Please start an episode first!", "", "No episode running.", ""
 
-    action = predict_category(current_obs, current_difficulty)
+    action = keyword_agent(current_obs, current_difficulty)
     categories = list(current_env.CATEGORY_MAPS[current_difficulty].values())
     selected = categories[action]
     return classify_document(selected)
@@ -129,7 +119,7 @@ def run_baseline_eval(difficulty):
     results = []
 
     while not terminated:
-        action = predict_category(obs, difficulty)
+        action = keyword_agent(obs, difficulty)
         obs, reward, terminated, _, info = env.step(action)
         correct += int(info.get("is_correct", False))
         total += 1
@@ -275,6 +265,3 @@ Legal, Legal-Contract, Legal-Compliance, Executive, Executive-Strategic, Finance
 if __name__ == "__main__":
     demo = create_interface()
     demo.launch(server_name="0.0.0.0", server_port=7860)
-
-
-
