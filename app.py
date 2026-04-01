@@ -77,7 +77,7 @@ def run_evaluation(difficulty):
         t0 = time.time()
         gen = TaskDataGenerator(task, seed=42)
         docs, labels = gen.generate_task_data()
-        correct = sum(1 for doc, lbl in zip(docs, labels) if gen.categories.index(doc.get("true_category","")) == lbl if doc.get("true_category","") in gen.categories else False)
+        correct = sum(1 for doc, lbl in zip(docs, labels) if doc.get("true_category","") in gen.categories and gen.categories.index(doc.get("true_category","")) == lbl)
         score = correct / len(docs)
         total += score
         bar = "=" * int(score * 20)
@@ -174,7 +174,7 @@ def run_evaluation(difficulty):
         t0 = time.time()
         gen = TaskDataGenerator(task, seed=42)
         docs, labels = gen.generate_task_data()
-        correct = sum(1 for doc, lbl in zip(docs, labels) if gen.categories.index(doc.get("true_category","")) == lbl if doc.get("true_category","") in gen.categories else False)
+        correct = sum(1 for doc, lbl in zip(docs, labels) if doc.get("true_category","") in gen.categories and gen.categories.index(doc.get("true_category","")) == lbl)
         score = correct / len(docs)
         total += score
         bar = "=" * int(score * 20)
@@ -259,3 +259,4 @@ def create_interface():
 if __name__ == "__main__":
     demo = create_interface()
     demo.launch(server_name="0.0.0.0", server_port=7860)
+
