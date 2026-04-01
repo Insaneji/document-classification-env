@@ -1,6 +1,6 @@
----
+﻿---
 title: Document Classification Environment
-emoji: d
+emoji: 📄
 colorFrom: blue
 colorTo: green
 sdk: docker
@@ -33,7 +33,7 @@ A real-world OpenEnv environment that trains AI agents to classify and route ent
 $readme = @'
 ---
 title: Document Classification Environment
-emoji: d
+emoji: 📄
 colorFrom: blue
 colorTo: green
 sdk: docker
@@ -127,3 +127,4 @@ Enterprise customer support ticket routing - a high-value task where AI agents c
 - Environment design: Full Gymnasium API compliance
 - Code quality: Modular, documented, reproducible
 - Creativity: Adversarial noise injection in Hard mode
+
