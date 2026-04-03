@@ -275,3 +275,4 @@ class TicketAgent:
             "top3": top3,
             "reply": reply,
             "timestamp": datetime.now().isoformat()
+        }
