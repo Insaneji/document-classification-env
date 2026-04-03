@@ -2,7 +2,7 @@ import pickle
 import os
 from datetime import datetime
 
-CATEGORY_NAMES = {
+CATEGORIES = {
     "easy":   {0:"General", 1:"Billing", 2:"Support", 3:"Technical", 4:"HR"},
     "medium": {0:"General", 1:"Billing", 2:"Support", 3:"Technical", 4:"HR",
                5:"Legal", 6:"Sales", 7:"Marketing", 8:"Operations", 9:"Complaints"},
@@ -201,60 +201,52 @@ class TicketAgent:
     def __init__(self, model_dir="."):
         self.models = {}
         self.model_dir = model_dir
-        self._load_models()
+        self._load()
 
-    def _load_models(self):
+    def _load(self):
         for d in ["easy", "medium", "hard"]:
-            path = os.path.join(self.model_dir, f"model_{d}.pkl")
-            if os.path.exists(path):
-                with open(path, "rb") as f:
+            p = os.path.join(self.model_dir, f"model_{d}.pkl")
+            if os.path.exists(p):
+                with open(p, "rb") as f:
                     self.models[d] = pickle.load(f)
 
-    def _to_name(self, c, difficulty):
-        name_map = CATEGORY_NAMES.get(difficulty, {})
+    def _name(self, c, diff):
+        m = CATEGORIES.get(diff, {})
         try:
-            return name_map.get(int(c), str(c))
+            return m.get(int(c), str(c))
         except:
             return str(c)
 
     def classify(self, text, difficulty="easy"):
-        text_lower = text.lower()
-
-        # Step 1 - Keyword override (hybrid rule check)
-        for category, keywords in CATEGORY_OVERRIDE.items():
-            if any(kw in text_lower for kw in keywords):
+        text = text.lower()
+        
+        for cat, kw_list in CATEGORY_OVERRIDE.items():
+            if any(kw in text for kw in kw_list):
                 if difficulty in self.models:
                     model = self.models[difficulty]
-                    raw_classes = model.classes_
+                    classes = model.classes_
                     proba = model.predict_proba([text])[0]
-                    scores = {
-                        self._to_name(c, difficulty): round(float(p), 4)
-                        for c, p in zip(raw_classes, proba)
-                    }
+                    scores = {self._name(c, difficulty): round(float(p), 4) for c, p in zip(classes, proba)}
                 else:
-                    scores = {category: 1.0}
-                scores[category] = max(scores.get(category, 0), 0.85)
-                return category, scores
-
-        # Step 2 - Pure ML classification
+                    scores = {cat: 1.0}
+                scores[cat] = max(scores.get(cat, 0), 0.85)
+                return cat, scores
+        
         if difficulty not in self.models:
             return "General", {"General": 1.0}
         model = self.models[difficulty]
-        raw_classes = model.classes_
+        classes = model.classes_
         proba = model.predict_proba([text])[0]
-        pred_raw = raw_classes[proba.argmax()]
-        top_cat = self._to_name(pred_raw, difficulty)
-        scores = {
-            self._to_name(c, difficulty): round(float(p), 4)
-            for c, p in zip(raw_classes, proba)
-        }
-        return top_cat, scores
+        pred = classes[proba.argmax()]
+        top = self._name(pred, difficulty)
+        scores = {self._name(c, difficulty): round(float(p), 4) for c, p in zip(classes, proba)}
+        return top, scores
 
     def get_priority(self, text):
-        text_lower = text.lower()
-        for priority, keywords in PRIORITY_RULES.items():
-            if any(kw in text_lower for kw in keywords):
-                return priority
+        text = text.lower()
+        for pri, kw_list in PRIORITY_RULES.items():
+            if any(kw in text for kw in kw_list):
+                return pri
         return "low"
 
     def route(self, category):
@@ -262,30 +254,24 @@ class TicketAgent:
 
     def generate_reply(self, category, priority, ref_id):
         dept = self.route(category)
-        template = REPLY_TEMPLATES.get(category, REPLY_TEMPLATES["General"])
-        return template.format(
-            ref_id=ref_id,
-            priority=priority.upper(),
-            sla=dept["sla"]
-        )
+        tmpl = REPLY_TEMPLATES.get(category, REPLY_TEMPLATES["General"])
+        return tmpl.format(ref_id=ref_id, priority=priority.upper(), sla=dept["sla"])
 
     def process_ticket(self, text, difficulty="easy", ticket_id=None):
         ref_id = ticket_id or f"TKT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        category, scores = self.classify(text, difficulty)
-        priority = self.get_priority(text)
-        dept = self.route(category)
-        reply = self.generate_reply(category, priority, ref_id)
+        cat, scores = self.classify(text, difficulty)
+        pri = self.get_priority(text)
+        dept = self.route(cat)
+        reply = self.generate_reply(cat, pri, ref_id)
         top3 = sorted(scores.items(), key=lambda x: -x[1])[:3]
-
         return {
-            "ref_id":     ref_id,
-            "category":   category,
-            "priority":   priority,
+            "ref_id": ref_id,
+            "category": cat,
+            "priority": pri,
             "department": dept["team"],
-            "email":      dept["email"],
-            "sla":        dept["sla"],
-            "confidence": scores.get(category, 0.0),
-            "top3":       top3,
-            "reply":      reply,
-            "timestamp":  datetime.now().isoformat()
-        }
+            "email": dept["email"],
+            "sla": dept["sla"],
+            "confidence": scores.get(cat, 0.0),
+            "top3": top3,
+            "reply": reply,
+            "timestamp": datetime.now().isoformat()

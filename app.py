@@ -7,7 +7,6 @@ from environment import DocumentClassificationEnv
 from baseline_inference import run_task, load_or_train
 from agent import TicketAgent
 
-# Pre-train models at startup
 print("Pre-training models...")
 models = {}
 for d in ["easy", "medium", "hard"]:
@@ -15,7 +14,6 @@ for d in ["easy", "medium", "hard"]:
     print(f"  {d} model ready!")
 print("All models ready!")
 
-# Init Agent
 agent = TicketAgent(model_dir=".")
 print("Agent ready!")
 
@@ -25,7 +23,6 @@ CATEGORIES = {
     "hard":   [f"Cat_{i}" for i in range(22)]
 }
 
-# --- Flask API ---
 api = Flask(__name__)
 api_envs = {}
 
@@ -82,7 +79,6 @@ def api_agent_classify():
 def run_flask():
     api.run(host="0.0.0.0", port=7861, debug=False)
 
-# --- Gradio UI ---
 env_state = {"env": None, "difficulty": "easy"}
 
 def create_env(difficulty):
@@ -131,19 +127,16 @@ def run_baseline_all():
         rows.append([d.upper(), f"{score:.4f}", f"{score*100:.1f}%", f"{t:.1f}s"])
     return rows
 
-# --- Agent UI ---
 def process_ticket_ui(ticket_text, difficulty):
     if not ticket_text.strip():
         return "❌ Please enter ticket text!", "", "", "", "", ""
     result = agent.process_ticket(ticket_text, difficulty=difficulty)
-    
     category_out = f"🏷️ {result['category']} (confidence: {result['confidence']*100:.1f}%)"
     priority_out  = f"🚨 {result['priority'].upper()}"
     dept_out      = f"🏢 {result['department']}\n📧 {result['email']}\n⏱️ SLA: {result['sla']}"
     top3_out      = "\n".join([f"  {c}: {p*100:.1f}%" for c,p in result['top3']])
     ref_out       = f"🎫 {result['ref_id']} | ⏰ {result['timestamp'][:19]}"
     reply_out     = result['reply']
-    
     return category_out, priority_out, dept_out, top3_out, ref_out, reply_out
 
 SAMPLE_TICKETS = {
@@ -178,18 +171,18 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
                 diff_agent = gr.Radio(["easy","medium","hard"], value="medium", label="Model Difficulty")
                 btn_process = gr.Button("🚀 Process Ticket", variant="primary")
             with gr.Column(scale=2):
-                ref_out    = gr.Textbox(label="🎫 Reference ID & Timestamp")
-                cat_out    = gr.Textbox(label="🏷️ Category & Confidence")
-                pri_out    = gr.Textbox(label="🚨 Priority")
-                dept_out   = gr.Textbox(label="🏢 Routed To", lines=3)
-                top3_out   = gr.Textbox(label="📊 Top 3 Predictions", lines=3)
-        reply_out = gr.Textbox(label="📧 Auto-Generated Reply", lines=12)
+                ref_out_box = gr.Textbox(label="🎫 Reference ID & Timestamp")
+                cat_out_box = gr.Textbox(label="🏷️ Category & Confidence")
+                pri_out_box = gr.Textbox(label="🚨 Priority")
+                dept_out_box = gr.Textbox(label="🏢 Routed To", lines=3)
+                top3_out_box = gr.Textbox(label="📊 Top 3 Predictions", lines=3)
+        reply_out_box = gr.Textbox(label="📧 Auto-Generated Reply", lines=12)
 
         sample_dd.change(load_sample, inputs=sample_dd, outputs=ticket_input)
         btn_process.click(
             process_ticket_ui,
             inputs=[ticket_input, diff_agent],
-            outputs=[cat_out, pri_out, dept_out, top3_out, ref_out, reply_out]
+            outputs=[cat_out_box, pri_out_box, dept_out_box, top3_out_box, ref_out_box, reply_out_box]
         )
 
     with gr.Tab("🎮 Interactive Demo"):
