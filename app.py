@@ -1,4 +1,3 @@
-import gradio as gr
 import threading
 import os
 import pickle
@@ -80,6 +79,7 @@ def api_agent_classify():
 def health():
     return jsonify({"status": "ok", "models_loaded": list(models.keys())})
 
+# FIX 1: use_reloader=False and threaded=True are required for Flask inside a daemon thread
 def run_flask():
     api.run(host="0.0.0.0", port=7861, debug=False, use_reloader=False, threaded=True)
 
@@ -141,11 +141,11 @@ def process_ticket_ui(ticket_text, difficulty):
         return "❌ Please enter ticket text!", "", "", "", "", ""
     result = agent.process_ticket(ticket_text, difficulty=difficulty)
     category_out = f"🏷️ {result['category']} (confidence: {result['confidence']*100:.1f}%)"
-    priority_out = f"🚨 {result['priority'].upper()}"
-    dept_out = f"🏢 {result['department']}\n📧 {result['email']}\n⏱️ SLA: {result['sla']}"
-    top3_out = "\n".join([f"  {c}: {p*100:.1f}%" for c, p in result['top3']])
-    ref_out = f"🎫 {result['ref_id']} | ⏰ {result['timestamp'][:19]}"
-    reply_out = result['reply']
+    priority_out  = f"🚨 {result['priority'].upper()}"
+    dept_out      = f"🏢 {result['department']}\n📧 {result['email']}\n⏱️ SLA: {result['sla']}"
+    top3_out      = "\n".join([f"  {c}: {p*100:.1f}%" for c, p in result['top3']])
+    ref_out       = f"🎫 {result['ref_id']} | ⏰ {result['timestamp'][:19]}"
+    reply_out     = result['reply']
     return category_out, priority_out, dept_out, top3_out, ref_out, reply_out
 
 SAMPLE_TICKETS = {
@@ -159,6 +159,7 @@ SAMPLE_TICKETS = {
 def load_sample(sample_name):
     return SAMPLE_TICKETS.get(sample_name, "")
 
+# FIX 2: gr.Blocks() uses only title= (a plain string). No dict arguments anywhere.
 with gr.Blocks(title="Document Classification OpenEnv") as demo:
     gr.Markdown("# 📄 Document Classification OpenEnv")
     gr.Markdown("Real-world customer support ticket routing environment for RL agent training.")
@@ -180,9 +181,9 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
                 diff_agent = gr.Radio(["easy", "medium", "hard"], value="medium", label="Model Difficulty")
                 btn_process = gr.Button("🚀 Process Ticket", variant="primary")
             with gr.Column(scale=2):
-                ref_out_box = gr.Textbox(label="🎫 Reference ID & Timestamp")
-                cat_out_box = gr.Textbox(label="🏷️ Category & Confidence")
-                pri_out_box = gr.Textbox(label="🚨 Priority")
+                ref_out_box  = gr.Textbox(label="🎫 Reference ID & Timestamp")
+                cat_out_box  = gr.Textbox(label="🏷️ Category & Confidence")
+                pri_out_box  = gr.Textbox(label="🚨 Priority")
                 dept_out_box = gr.Textbox(label="🏢 Routed To", lines=3)
                 top3_out_box = gr.Textbox(label="📊 Top 3 Predictions", lines=3)
         reply_out_box = gr.Textbox(label="📧 Auto-Generated Reply", lines=12)
@@ -225,19 +226,4 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
 | Medium | 10 | 30 | +1.0 correct, -0.4 wrong |
 | Hard | 22 | 50 | +1.0 correct, -0.4 wrong |
 
-## Agent Pipeline
-`Ticket Input` → `ML Classify` → `Rule Priority` → `Department Route` → `Auto Reply`
-
-## API Endpoints (port 7861)
-- `GET /health`
-- `POST /api/reset`
-- `POST /api/step`
-- `POST /api/run`
-- `POST /api/agent/process`
-- `POST /api/agent/classify`
-        """)
-
-if __name__ == "__main__":
-    t = threading.Thread(target=run_flask, daemon=True)
-    t.start()
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
+#
