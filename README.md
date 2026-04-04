@@ -4,10 +4,11 @@ emoji: 📄
 colorFrom: blue
 colorTo: green
 sdk: gradio
-sdk_version: 4.44.1
+sdk_version: 3.50.2
 app_file: app.py
 pinned: false
 ---
 
 # Document Classification OpenEnv
 Real-world customer support ticket routing environment for RL agent training.
+
