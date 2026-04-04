@@ -6,3 +6,16 @@ pyyaml==6.0
 requests==2.31.0
 flask==2.3.3
 gradio>=6.0.0
+
+# AI/ML enhancements for hackathon
+torch>=2.0.0
+transformers>=4.30.0
+sentence-transformers>=2.2.0
+accelerate>=0.20.0
+
+# UI enhancements
+matplotlib>=3.7.0
+plotly>=5.15.0
+
+# Utilities
+tqdm>=4.65.0

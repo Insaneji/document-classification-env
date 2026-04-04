@@ -10,23 +10,23 @@ from environment import DocumentClassificationEnv
 
 # Hierarchy map - categories that are "close" get partial credit
 CATEGORY_HIERARCHY = {
-    "Billing":           ["Billing-Dispute", "Billing-Refund"],
-    "Billing-Dispute":   ["Billing", "Billing-Refund"],
-    "Billing-Refund":    ["Billing", "Billing-Dispute"],
-    "Support":           ["Support-Urgent", "Support-Normal"],
-    "Support-Urgent":    ["Support", "Support-Normal"],
-    "Support-Normal":    ["Support", "Support-Urgent"],
-    "Technical":         ["Technical-Bug", "Technical-Feature"],
-    "Technical-Bug":     ["Technical", "Technical-Feature"],
+    "Billing": ["Billing-Dispute", "Billing-Refund"],
+    "Billing-Dispute": ["Billing", "Billing-Refund"],
+    "Billing-Refund": ["Billing", "Billing-Dispute"],
+    "Support": ["Support-Urgent", "Support-Normal"],
+    "Support-Urgent": ["Support", "Support-Normal"],
+    "Support-Normal": ["Support", "Support-Urgent"],
+    "Technical": ["Technical-Bug", "Technical-Feature"],
+    "Technical-Bug": ["Technical", "Technical-Feature"],
     "Technical-Feature": ["Technical", "Technical-Bug"],
-    "HR":                ["HR-Payroll", "HR-Benefits", "HR-Complaint"],
-    "HR-Payroll":        ["HR", "HR-Benefits"],
-    "HR-Benefits":       ["HR", "HR-Payroll"],
-    "HR-Complaint":      ["HR"],
-    "Legal":             ["Legal-Contract", "Legal-Compliance"],
-    "Legal-Contract":    ["Legal", "Legal-Compliance"],
-    "Legal-Compliance":  ["Legal", "Legal-Contract"],
-    "Executive":         ["Executive-Strategic"],
+    "HR": ["HR-Payroll", "HR-Benefits", "HR-Complaint"],
+    "HR-Payroll": ["HR", "HR-Benefits"],
+    "HR-Benefits": ["HR", "HR-Payroll"],
+    "HR-Complaint": ["HR"],
+    "Legal": ["Legal-Contract", "Legal-Compliance"],
+    "Legal-Contract": ["Legal", "Legal-Compliance"],
+    "Legal-Compliance": ["Legal", "Legal-Contract"],
+    "Executive": ["Executive-Strategic"],
     "Executive-Strategic": ["Executive"],
 }
 
@@ -89,7 +89,9 @@ class AgentGrader:
             exact = sum(t == p for t, p in zip(ep_true, ep_pred)) / len(ep_true)
 
             # Hierarchical accuracy (with partial credit)
-            hier_scores = [hierarchical_accuracy(t, p) for t, p in zip(ep_true, ep_pred)]
+            hier_scores = [
+                hierarchical_accuracy(t, p) for t, p in zip(ep_true, ep_pred)
+            ]
             hier_acc = np.mean(hier_scores)
 
             # Partial credit ratio
@@ -157,13 +159,14 @@ class AgentGrader:
 
 def grade_baseline(task_difficulty: str) -> float:
     """Quick helper to grade and return score"""
-    from baseline_inference import TFIDFAgent
+    from baseline_inference import load_or_train
 
-    agent = TFIDFAgent(task_difficulty)
+    model = load_or_train(task_difficulty)
     grader = AgentGrader(task_difficulty)
 
     def agent_fn(obs):
-        return agent.predict(obs["content"])
+        pred = model.predict([obs["content"]])[0]
+        return int(pred)
 
     result = grader.grade(agent_fn)
     return result["score"]
