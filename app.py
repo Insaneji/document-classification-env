@@ -229,4 +229,5 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
 if __name__ == "__main__":
     t = threading.Thread(target=run_flask, daemon=True)
     t.start()
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+   # OLD
+demo.launch(server_name="0.0.0.0", server_port=7860)
