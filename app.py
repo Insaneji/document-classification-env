@@ -1,3 +1,4 @@
+import gradio as gr
 import threading
 import os
 import pickle
@@ -79,7 +80,6 @@ def api_agent_classify():
 def health():
     return jsonify({"status": "ok", "models_loaded": list(models.keys())})
 
-# FIX 1: use_reloader=False and threaded=True are required for Flask inside a daemon thread
 def run_flask():
     api.run(host="0.0.0.0", port=7861, debug=False, use_reloader=False, threaded=True)
 
@@ -159,7 +159,26 @@ SAMPLE_TICKETS = {
 def load_sample(sample_name):
     return SAMPLE_TICKETS.get(sample_name, "")
 
-# FIX 2: gr.Blocks() uses only title= (a plain string). No dict arguments anywhere.
+# NOTE: ENV_INFO uses string concatenation to avoid any triple-quote syntax issues
+ENV_INFO = (
+    "## Environment Design\n"
+    "**Task**: Classify customer support documents into correct departments.\n\n"
+    "| Difficulty | Categories | Episodes | Reward |\n"
+    "|------------|------------|----------|--------|\n"
+    "| Easy | 5 | 20 | +1.0 correct, -0.4 wrong |\n"
+    "| Medium | 10 | 30 | +1.0 correct, -0.4 wrong |\n"
+    "| Hard | 22 | 50 | +1.0 correct, -0.4 wrong |\n\n"
+    "## Agent Pipeline\n"
+    "`Ticket Input` -> `ML Classify` -> `Rule Priority` -> `Department Route` -> `Auto Reply`\n\n"
+    "## API Endpoints (port 7861)\n"
+    "- `GET /health`\n"
+    "- `POST /api/reset`\n"
+    "- `POST /api/step`\n"
+    "- `POST /api/run`\n"
+    "- `POST /api/agent/process`\n"
+    "- `POST /api/agent/classify`\n"
+)
+
 with gr.Blocks(title="Document Classification OpenEnv") as demo:
     gr.Markdown("# 📄 Document Classification OpenEnv")
     gr.Markdown("Real-world customer support ticket routing environment for RL agent training.")
@@ -210,20 +229,4 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
         btn_classify.click(classify_doc, inputs=category, outputs=[result, doc_content, explain_box, info_box])
 
     with gr.Tab("📊 Baseline Evaluation"):
-        gr.Markdown("TF-IDF + Logistic Regression baseline — models pre-trained at startup for instant results.")
-        btn_eval = gr.Button("Run All Tasks", variant="primary")
-        score_table = gr.Dataframe(headers=["Task", "Score", "Accuracy", "Time"], label="Results")
-        btn_eval.click(run_baseline_all, outputs=score_table)
-
-    with gr.Tab("📋 Environment Info"):
-        gr.Markdown("""
-## Environment Design
-**Task**: Classify customer support documents into correct departments.
-
-| Difficulty | Categories | Episodes | Reward |
-|------------|-----------|----------|--------|
-| Easy | 5 | 20 | +1.0 correct, -0.4 wrong |
-| Medium | 10 | 30 | +1.0 correct, -0.4 wrong |
-| Hard | 22 | 50 | +1.0 correct, -0.4 wrong |
-
-#
+        gr.Markdown("TF-IDF + Logistic Regression baseline — models pre-trained at s
