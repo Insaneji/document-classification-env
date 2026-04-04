@@ -1,4 +1,4 @@
-﻿---
+---
 title: Document Classification Env
 emoji: 📋
 colorFrom: blue
