@@ -1,6 +1,6 @@
 ﻿---
 title: Document Classification Env
-emoji: 📄
+emoji: 📋
 colorFrom: blue
 colorTo: green
 sdk: gradio
@@ -11,5 +11,3 @@ pinned: false
 
 # Document Classification OpenEnv
 Real-world customer support ticket routing environment for RL agent training.
-
-
