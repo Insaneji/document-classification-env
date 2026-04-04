@@ -25,7 +25,7 @@ def train_model(difficulty):
             all_labels.append(label)
     pipeline = Pipeline([
         ("tfidf", TfidfVectorizer(ngram_range=(1,2), max_features=5000, sublinear_tf=True)),
-        ("clf", LogisticRegression(max_iter=1000, C=5.0, solver="lbfgs", multi_class="multinomial"))
+        ("clf", LogisticRegression(max_iter=1000, C=5.0, solver="lbfgs"))
     ])
     pipeline.fit(all_texts, all_labels)
     with open(get_model_path(difficulty), "wb") as f:
