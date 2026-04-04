@@ -1,7 +1,8 @@
-﻿gradio==3.50.2
+﻿gradio==6.11.8
 flask
 scikit-learn
 numpy
 gymnasium
 huggingface_hub>=0.21.0,<1.0.0
+
 
