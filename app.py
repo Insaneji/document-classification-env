@@ -1,232 +1,267 @@
+"""
+Gradio UI for Document Classification Environment
+Interactive demo for judges + baseline evaluation
+"""
+
 import gradio as gr
-import threading
-import os
-import pickle
-from flask import Flask, request, jsonify
+import json
+import time
 from environment import DocumentClassificationEnv
-from baseline_inference import run_task, load_or_train
-from agent import TicketAgent
+from baseline_inference import keyword_agent
 
-print("Pre-training models...")
-models = {}
-for d in ["easy", "medium", "hard"]:
-    models[d] = load_or_train(d)
-    print(f"  {d} model ready!")
-print("All models ready!")
+# Global state
+current_env = None
+current_obs = None
+current_difficulty = "easy"
 
-agent = TicketAgent(model_dir=".")
-print("Agent ready!")
-
-CATEGORIES = {
-    "easy":   ["General","Billing","Support","Technical","HR"],
-    "medium": ["General","Billing","Support","Technical","HR","Legal","Sales","Marketing","Operations","Complaints"],
-    "hard":   [f"Cat_{i}" for i in range(22)]
+CATEGORY_COLORS = {
+    "General": "🔵", "Billing": "💰", "Billing-Dispute": "⚠️", "Billing-Refund": "💸",
+    "Support": "🆘", "Support-Urgent": "🚨", "Support-Normal": "💬",
+    "Technical": "⚙️", "Technical-Bug": "🐛", "Technical-Feature": "✨",
+    "HR": "👥", "HR-Payroll": "💵", "HR-Benefits": "🏥", "HR-Complaint": "📢",
+    "Legal": "⚖️", "Legal-Contract": "📝", "Legal-Compliance": "📋",
+    "Executive": "👔", "Executive-Strategic": "🎯",
+    "Finance": "📊", "Marketing": "📣", "Operations": "🔧"
 }
-
-api = Flask(__name__)
-api_envs = {}
-
-@api.route("/api/reset", methods=["POST"])
-def api_reset():
-    data = request.json or {}
-    difficulty = data.get("difficulty", "easy")
-    seed = data.get("seed", 42)
-    env = DocumentClassificationEnv(task_difficulty=difficulty, seed=seed)
-    obs, _ = env.reset(seed=seed)
-    api_envs["current"] = env
-    return jsonify({"observation": {k: v.tolist() if hasattr(v, 'tolist') else v for k, v in obs.items()}})
-
-@api.route("/api/step", methods=["POST"])
-def api_step():
-    data = request.json or {}
-    action = data.get("action", 0)
-    env = api_envs.get("current")
-    if env is None:
-        return jsonify({"error": "Call /api/reset first"}), 400
-    obs, reward, done, _, info = env.step(int(action))
-    return jsonify({
-        "observation": {k: v.tolist() if hasattr(v, 'tolist') else v for k, v in obs.items()},
-        "reward": reward, "done": done, "info": info
-    })
-
-@api.route("/api/run", methods=["POST"])
-def api_run():
-    data = request.json or {}
-    difficulty = data.get("difficulty", "easy")
-    score, t = run_task(difficulty)
-    return jsonify({"difficulty": difficulty, "score": score, "time": t})
-
-@api.route("/api/agent/process", methods=["POST"])
-def api_agent_process():
-    data = request.json or {}
-    text = data.get("text", "")
-    difficulty = data.get("difficulty", "easy")
-    ticket_id = data.get("ticket_id", None)
-    if not text:
-        return jsonify({"error": "text field required"}), 400
-    result = agent.process_ticket(text, difficulty=difficulty, ticket_id=ticket_id)
-    return jsonify(result)
-
-@api.route("/api/agent/classify", methods=["POST"])
-def api_agent_classify():
-    data = request.json or {}
-    text = data.get("text", "")
-    difficulty = data.get("difficulty", "easy")
-    category, scores = agent.classify(text, difficulty)
-    priority = agent.get_priority(text)
-    return jsonify({"category": category, "priority": priority, "scores": scores})
-
-@api.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok", "models_loaded": list(models.keys())})
-
-def run_flask():
-    api.run(host="0.0.0.0", port=7861, debug=False, use_reloader=False, threaded=True)
-
-env_state = {"env": None, "difficulty": "easy"}
-
-def create_env(difficulty):
-    e = DocumentClassificationEnv(task_difficulty=difficulty, seed=42)
-    obs, _ = e.reset()
-    env_state["env"] = e
-    env_state["difficulty"] = difficulty
-    model = models[difficulty]
-    cats = CATEGORIES[difficulty]
-    proba = model.predict_proba([obs["content"]])[0]
-    top3 = sorted(enumerate(proba), key=lambda x: -x[1])[:3]
-    explain = "\n".join([f"  {cats[i] if i < len(cats) else f'Cat_{i}'}: {p*100:.1f}%" for i, p in top3])
-    pred_idx = int(model.predict([obs["content"]])[0])
-    pred_cat = cats[pred_idx] if pred_idx < len(cats) else f"Cat_{pred_idx}"
-    return (
-        f"✅ Environment created! Difficulty: {difficulty}",
-        obs["content"],
-        f"🤖 Model predicts: **{pred_cat}**\n\nTop 3 predictions:\n{explain}",
-        ""
-    )
-
-def classify_doc(category_idx):
-    e = env_state["env"]
-    if e is None:
-        return "Create environment first!", "", "", ""
-    obs, reward, done, _, info = e.step(int(category_idx))
-    result = f"Reward: {reward:.2f} | Correct: {info.get('is_correct', False)}"
-    if done:
-        acc = info.get('episode_accuracy', 0)
-        result += f"\n🏁 Episode done! Final Accuracy: {acc:.2%}"
-        return result, "Episode complete — create new environment", "", str(info)
-    difficulty = env_state["difficulty"]
-    model = models[difficulty]
-    cats = CATEGORIES[difficulty]
-    proba = model.predict_proba([obs["content"]])[0]
-    top3 = sorted(enumerate(proba), key=lambda x: -x[1])[:3]
-    explain = "\n".join([f"  {cats[i] if i < len(cats) else f'Cat_{i}'}: {p*100:.1f}%" for i, p in top3])
-    pred_idx = int(model.predict([obs["content"]])[0])
-    pred_cat = cats[pred_idx] if pred_idx < len(cats) else f"Cat_{pred_idx}"
-    return (
-        result,
-        obs["content"],
-        f"🤖 Model predicts: **{pred_cat}**\n\nTop 3 predictions:\n{explain}",
-        str(info)
-    )
-
-def run_baseline_all():
-    rows = []
-    for d in ["easy", "medium", "hard"]:
-        score, t = run_task(d)
-        rows.append([d.upper(), f"{score:.4f}", f"{score*100:.1f}%", f"{t:.1f}s"])
-    return rows
-
-def process_ticket_ui(ticket_text, difficulty):
-    if not ticket_text.strip():
-        return "❌ Please enter ticket text!", "", "", "", "", ""
-    result = agent.process_ticket(ticket_text, difficulty=difficulty)
-    category_out = f"🏷️ {result['category']} (confidence: {result['confidence']*100:.1f}%)"
-    priority_out  = f"🚨 {result['priority'].upper()}"
-    dept_out      = f"🏢 {result['department']}\n📧 {result['email']}\n⏱️ SLA: {result['sla']}"
-    top3_out      = "\n".join([f"  {c}: {p*100:.1f}%" for c, p in result['top3']])
-    ref_out       = f"🎫 {result['ref_id']} | ⏰ {result['timestamp'][:19]}"
-    reply_out     = result['reply']
-    return category_out, priority_out, dept_out, top3_out, ref_out, reply_out
 
 SAMPLE_TICKETS = {
-    "Billing complaint": "My invoice shows an incorrect amount. I was charged $150 but should have been charged $75. Please review and correct this immediately.",
-    "Bug report": "The application crashes whenever I try to upload a file larger than 10MB. This is a critical issue affecting my workflow.",
-    "HR query": "I have a question about the company's maternity leave policy. How many weeks of paid leave am I entitled to?",
-    "Chat message": "Hey, I can't log into my account. The password reset link isn't working either. Please help ASAP!",
-    "Email ticket": "Dear Support, I would like to inquire about upgrading my current subscription plan to include additional users.",
+    "Billing Issue": "I was overcharged on my last invoice. The amount shows $150 but it should be $100. Please review and correct this billing error immediately.",
+    "Urgent Bug": "URGENT: Our production system is completely down! The application crashes every time users try to login. This is affecting all customers. Critical issue needs immediate attention!",
+    "Feature Request": "I would like to request a new feature for the dashboard. Can you add functionality for exporting data to CSV format? This would greatly improve our workflow.",
+    "HR Complaint": "I would like to file a formal complaint about a workplace issue. A colleague has been creating a hostile work environment and I need to report this serious HR matter.",
+    "Legal Contract": "I need a review of this contract before signing. The contract terms need clarification, specifically regarding the liability clauses and termination provisions.",
+    "Refund Request": "I would like to request a refund for my recent purchase. The product did not meet the specifications described and I need to return it and get refunded.",
 }
+
+
+def start_episode(difficulty):
+    global current_env, current_obs, current_difficulty
+    current_difficulty = difficulty
+    current_env = DocumentClassificationEnv(task_difficulty=difficulty, seed=42)
+    current_obs, _ = current_env.reset()
+
+    categories = list(current_env.CATEGORY_MAPS[difficulty].values())
+    doc_content = current_obs["content"]
+    word_count = int(current_obs["word_count"][0])
+    doc_id = current_obs["document_id"]
+    total = int(current_obs["total_documents"][0])
+
+    info_text = f"**Document ID:** {doc_id} | **Words:** {word_count} | **Total Docs:** {total}"
+    return doc_content, info_text, gr.update(choices=categories, value=None), "Episode started! Classify the document above.", ""
+
+
+def classify_document(selected_category):
+    global current_env, current_obs, current_difficulty
+
+    if current_env is None:
+        return "Please start an episode first!", "", "", gr.update(choices=[])
+    if selected_category is None:
+        return current_obs["content"], "", "Please select a category!", ""
+
+    categories = list(current_env.CATEGORY_MAPS[current_difficulty].values())
+    action = categories.index(selected_category)
+
+    obs, reward, terminated, _, info = current_env.step(action)
+    current_obs = obs
+
+    is_correct = info.get("is_correct", False)
+    true_cat = info.get("true_category", "?")
+    pred_cat = info.get("predicted_category", "?")
+    accuracy = info.get("episode_accuracy", 0)
+
+    true_icon = CATEGORY_COLORS.get(true_cat, "📄")
+    pred_icon = CATEGORY_COLORS.get(pred_cat, "📄")
+
+    result = f"{'✅ CORRECT' if is_correct else '❌ INCORRECT'}\n"
+    result += f"Your pick: {pred_icon} {pred_cat}\n"
+    result += f"True category: {true_icon} {true_cat}\n"
+    result += f"Reward: {reward:.3f} | Accuracy so far: {accuracy:.1%}"
+
+    if terminated:
+        summary = info.get("episode_summary", {})
+        final_acc = summary.get("accuracy", 0)
+        total_reward = summary.get("total_reward", 0)
+        next_doc = "🎉 Episode Complete!"
+        result += f"\n\n**FINAL: Accuracy={final_acc:.1%} | Total Reward={total_reward:.2f}**"
+        return "Episode complete! Click 'Start Episode' to play again.", "", result, gr.update(choices=categories)
+
+    next_doc = obs["content"]
+    next_id = obs["document_id"]
+    next_words = int(obs["word_count"][0])
+    next_idx = int(obs["document_index"][0])
+    total = int(obs["total_documents"][0])
+    info_text = f"**Document ID:** {next_id} | **Words:** {next_words} | **Progress:** {next_idx}/{total}"
+
+    return next_doc, info_text, result, gr.update(choices=categories, value=None)
+
+
+def auto_classify():
+    global current_env, current_obs, current_difficulty
+    if current_env is None or current_obs is None:
+        return "Please start an episode first!", "", "No episode running.", ""
+
+    action = keyword_agent(current_obs, current_difficulty)
+    categories = list(current_env.CATEGORY_MAPS[current_difficulty].values())
+    selected = categories[action]
+    return classify_document(selected)
+
 
 def load_sample(sample_name):
     return SAMPLE_TICKETS.get(sample_name, "")
 
-# NOTE: ENV_INFO uses string concatenation to avoid any triple-quote syntax issues
-ENV_INFO = (
-    "## Environment Design\n"
-    "**Task**: Classify customer support documents into correct departments.\n\n"
-    "| Difficulty | Categories | Episodes | Reward |\n"
-    "|------------|------------|----------|--------|\n"
-    "| Easy | 5 | 20 | +1.0 correct, -0.4 wrong |\n"
-    "| Medium | 10 | 30 | +1.0 correct, -0.4 wrong |\n"
-    "| Hard | 22 | 50 | +1.0 correct, -0.4 wrong |\n\n"
-    "## Agent Pipeline\n"
-    "`Ticket Input` -> `ML Classify` -> `Rule Priority` -> `Department Route` -> `Auto Reply`\n\n"
-    "## API Endpoints (port 7861)\n"
-    "- `GET /health`\n"
-    "- `POST /api/reset`\n"
-    "- `POST /api/step`\n"
-    "- `POST /api/run`\n"
-    "- `POST /api/agent/process`\n"
-    "- `POST /api/agent/classify`\n"
-)
 
-with gr.Blocks(title="Document Classification OpenEnv") as demo:
-    gr.Markdown("# 📄 Document Classification OpenEnv")
-    gr.Markdown("Real-world customer support ticket routing environment for RL agent training.")
+def run_baseline_eval(difficulty):
+    env = DocumentClassificationEnv(task_difficulty=difficulty, seed=42)
+    obs, _ = env.reset()
+    correct = 0
+    total = 0
+    terminated = False
+    results = []
 
-    with gr.Tab("🤖 Agent Demo"):
-        gr.Markdown("### Full Automation — ML Classification + Rule-based Priority + Auto-Reply")
-        with gr.Row():
-            with gr.Column(scale=2):
-                sample_dd = gr.Dropdown(
-                    choices=list(SAMPLE_TICKETS.keys()),
-                    label="📋 Load Sample Ticket",
-                    value=None
+    while not terminated:
+        action = keyword_agent(obs, difficulty)
+        obs, reward, terminated, _, info = env.step(action)
+        correct += int(info.get("is_correct", False))
+        total += 1
+        if total <= 10:
+            true_cat = info.get("true_category", "?")
+            pred_cat = info.get("predicted_category", "?")
+            icon = "✅" if info.get("is_correct") else "❌"
+            results.append(f"{icon} Predicted: {pred_cat} | True: {true_cat}")
+
+    accuracy = correct / total if total > 0 else 0
+    output = f"## Baseline Results — {difficulty.upper()}\n\n"
+    output += f"**Accuracy: {accuracy:.1%}** ({correct}/{total} correct)\n\n"
+    output += "### Sample Predictions (first 10):\n"
+    output += "\n".join(results)
+    return output
+
+
+def create_interface():
+    with gr.Blocks(title="Document Classification OpenEnv", theme=gr.themes.Soft()) as demo:
+        gr.Markdown("""
+# 📄 Document Classification Environment
+### OpenEnv — Meta x PyTorch Hackathon Submission
+An interactive environment for training AI agents to classify and route support tickets.
+        """)
+
+        with gr.Tabs():
+            # Tab 1: Interactive Demo
+            with gr.TabItem("🎮 Interactive Demo"):
+                gr.Markdown("### Try classifying documents yourself!")
+                with gr.Row():
+                    difficulty_select = gr.Radio(
+                        choices=["easy", "medium", "hard"],
+                        value="easy",
+                        label="Difficulty Level",
+                        info="Easy=5 categories, Medium=10, Hard=22"
+                    )
+                    start_btn = gr.Button("▶ Start Episode", variant="primary", scale=1)
+
+                with gr.Row():
+                    with gr.Column(scale=2):
+                        doc_display = gr.Textbox(
+                            label="📨 Document to Classify",
+                            lines=6,
+                            placeholder="Click 'Start Episode' to begin..."
+                        )
+                        doc_info = gr.Markdown("")
+
+                    with gr.Column(scale=1):
+                        category_radio = gr.Radio(choices=[], label="🏷️ Select Category")
+                        with gr.Row():
+                            classify_btn = gr.Button("✅ Classify", variant="primary")
+                            auto_btn = gr.Button("🤖 Auto (AI)", variant="secondary")
+
+                result_display = gr.Textbox(label="📊 Result", lines=5)
+
+                # Sample tickets
+                gr.Markdown("### 📋 Try Sample Tickets")
+                with gr.Row():
+                    for name in SAMPLE_TICKETS:
+                        gr.Button(name).click(
+                            fn=lambda n=name: load_sample(n),
+                            outputs=doc_display
+                        )
+
+                start_btn.click(
+                    fn=start_episode,
+                    inputs=difficulty_select,
+                    outputs=[doc_display, doc_info, category_radio, result_display, gr.Textbox(visible=False)]
                 )
-                ticket_input = gr.Textbox(
-                    label="✍️ Ticket / Message Text",
-                    lines=6,
-                    placeholder="Paste email, chat message, bug report, HR query..."
+                classify_btn.click(
+                    fn=classify_document,
+                    inputs=category_radio,
+                    outputs=[doc_display, doc_info, result_display, category_radio]
                 )
-                diff_agent = gr.Radio(["easy", "medium", "hard"], value="medium", label="Model Difficulty")
-                btn_process = gr.Button("🚀 Process Ticket", variant="primary")
-            with gr.Column(scale=2):
-                ref_out_box  = gr.Textbox(label="🎫 Reference ID & Timestamp")
-                cat_out_box  = gr.Textbox(label="🏷️ Category & Confidence")
-                pri_out_box  = gr.Textbox(label="🚨 Priority")
-                dept_out_box = gr.Textbox(label="🏢 Routed To", lines=3)
-                top3_out_box = gr.Textbox(label="📊 Top 3 Predictions", lines=3)
-        reply_out_box = gr.Textbox(label="📧 Auto-Generated Reply", lines=12)
+                auto_btn.click(
+                    fn=auto_classify,
+                    outputs=[doc_display, doc_info, result_display, category_radio]
+                )
 
-        sample_dd.change(load_sample, inputs=sample_dd, outputs=ticket_input)
-        btn_process.click(
-            process_ticket_ui,
-            inputs=[ticket_input, diff_agent],
-            outputs=[cat_out_box, pri_out_box, dept_out_box, top3_out_box, ref_out_box, reply_out_box]
-        )
+            # Tab 2: Baseline Evaluation
+            with gr.TabItem("📊 Baseline Evaluation"):
+                gr.Markdown("### Run the keyword-based baseline agent and see scores")
+                with gr.Row():
+                    eval_difficulty = gr.Radio(
+                        choices=["easy", "medium", "hard"],
+                        value="easy",
+                        label="Select Difficulty"
+                    )
+                    eval_btn = gr.Button("🚀 Run Evaluation", variant="primary")
 
-    with gr.Tab("🎮 Interactive Demo"):
-        diff = gr.Radio(["easy", "medium", "hard"], value="easy", label="Difficulty")
-        btn_create = gr.Button("Create Environment", variant="primary")
-        status = gr.Textbox(label="Status")
-        with gr.Row():
-            doc_content = gr.Textbox(label="📝 Document Content", lines=6)
-            explain_box = gr.Textbox(label="🧠 Explainability — Model Reasoning", lines=6)
-        category = gr.Number(label="Category Index (easy: 0-4, medium: 0-9, hard: 0-21)", value=0)
-        btn_classify = gr.Button("Classify Document")
-        result = gr.Textbox(label="Result")
-        info_box = gr.Textbox(label="Info")
-        btn_create.click(create_env, inputs=diff, outputs=[status, doc_content, explain_box, result])
-        btn_classify.click(classify_doc, inputs=category, outputs=[result, doc_content, explain_box, info_box])
+                eval_output = gr.Markdown("Click 'Run Evaluation' to start...")
+                eval_btn.click(fn=run_baseline_eval, inputs=eval_difficulty, outputs=eval_output)
 
-    with gr.Tab("📊 Baseline Evaluation"):
-        gr.Markdown("TF-IDF + Logistic Regression baseline — models pre-trained at s
+            # Tab 3: Environment Info
+            with gr.TabItem("📖 Environment Info"):
+                gr.Markdown("""
+## About This Environment
+
+### Task: Document Classification & Routing
+An agent receives customer support tickets/documents and must classify them into the correct department category.
+
+### Difficulty Levels
+| Level | Categories | Documents | Time Limit |
+|-------|-----------|-----------|------------|
+| Easy  | 5         | 100       | None       |
+| Medium| 10        | 500       | 2 seconds  |
+| Hard  | 22        | 1000      | 1 second   |
+
+### Reward Structure
+- ✅ Correct classification: **+1.0**
+- ❌ Wrong classification: **-0.5**
+- ⚡ Speed bonus (fast response): **+0.1 to +0.25**
+
+### API Usage
+```python
+from environment import DocumentClassificationEnv
+
+env = DocumentClassificationEnv(task_difficulty="hard", seed=42)
+obs, info = env.reset()
+
+while True:
+    action = your_agent(obs)  # 0 to N-1
+    obs, reward, done, truncated, info = env.step(action)
+    if done:
+        print(info["episode_summary"])
+        break
+```
+
+### Baseline Scores (keyword agent)
+- **EASY:** 0.77
+- **MEDIUM:** 0.89  
+- **HARD:** 0.165
+
+### Categories (Hard Mode — 22 total)
+General, Billing, Billing-Dispute, Billing-Refund, Support, Support-Urgent, Support-Normal,
+Technical, Technical-Bug, Technical-Feature, HR, HR-Payroll, HR-Benefits, HR-Complaint,
+Legal, Legal-Contract, Legal-Compliance, Executive, Executive-Strategic, Finance, Marketing, Operations
+                """)
+
+    return demo
+
+
+if __name__ == "__main__":
+    demo = create_interface()
+    demo.launch(server_name="0.0.0.0", server_port=7860)
