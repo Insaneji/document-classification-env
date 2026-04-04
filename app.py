@@ -76,8 +76,12 @@ def api_agent_classify():
     priority = agent.get_priority(text)
     return jsonify({"category": category, "priority": priority, "scores": scores})
 
+@api.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok", "models_loaded": list(models.keys())})
+
 def run_flask():
-    api.run(host="0.0.0.0", port=7861, debug=False)
+    api.run(host="0.0.0.0", port=7861, debug=False, use_reloader=False, threaded=True)
 
 env_state = {"env": None, "difficulty": "easy"}
 
@@ -90,13 +94,15 @@ def create_env(difficulty):
     cats = CATEGORIES[difficulty]
     proba = model.predict_proba([obs["content"]])[0]
     top3 = sorted(enumerate(proba), key=lambda x: -x[1])[:3]
-    explain = "\n".join([f"  {cats[i] if i < len(cats) else f'Cat_{i}'}: {p*100:.1f}%" for i,p in top3])
+    explain = "\n".join([f"  {cats[i] if i < len(cats) else f'Cat_{i}'}: {p*100:.1f}%" for i, p in top3])
     pred_idx = int(model.predict([obs["content"]])[0])
     pred_cat = cats[pred_idx] if pred_idx < len(cats) else f"Cat_{pred_idx}"
-    return (f"✅ Environment created! Difficulty: {difficulty}",
-            obs["content"],
-            f"🤖 Model predicts: **{pred_cat}**\n\nTop 3 predictions:\n{explain}",
-            "")
+    return (
+        f"✅ Environment created! Difficulty: {difficulty}",
+        obs["content"],
+        f"🤖 Model predicts: **{pred_cat}**\n\nTop 3 predictions:\n{explain}",
+        ""
+    )
 
 def classify_doc(category_idx):
     e = env_state["env"]
@@ -113,12 +119,15 @@ def classify_doc(category_idx):
     cats = CATEGORIES[difficulty]
     proba = model.predict_proba([obs["content"]])[0]
     top3 = sorted(enumerate(proba), key=lambda x: -x[1])[:3]
-    explain = "\n".join([f"  {cats[i] if i < len(cats) else f'Cat_{i}'}: {p*100:.1f}%" for i,p in top3])
+    explain = "\n".join([f"  {cats[i] if i < len(cats) else f'Cat_{i}'}: {p*100:.1f}%" for i, p in top3])
     pred_idx = int(model.predict([obs["content"]])[0])
     pred_cat = cats[pred_idx] if pred_idx < len(cats) else f"Cat_{pred_idx}"
-    return (result, obs["content"],
-            f"🤖 Model predicts: **{pred_cat}**\n\nTop 3 predictions:\n{explain}",
-            str(info))
+    return (
+        result,
+        obs["content"],
+        f"🤖 Model predicts: **{pred_cat}**\n\nTop 3 predictions:\n{explain}",
+        str(info)
+    )
 
 def run_baseline_all():
     rows = []
@@ -132,11 +141,11 @@ def process_ticket_ui(ticket_text, difficulty):
         return "❌ Please enter ticket text!", "", "", "", "", ""
     result = agent.process_ticket(ticket_text, difficulty=difficulty)
     category_out = f"🏷️ {result['category']} (confidence: {result['confidence']*100:.1f}%)"
-    priority_out  = f"🚨 {result['priority'].upper()}"
-    dept_out      = f"🏢 {result['department']}\n📧 {result['email']}\n⏱️ SLA: {result['sla']}"
-    top3_out      = "\n".join([f"  {c}: {p*100:.1f}%" for c,p in result['top3']])
-    ref_out       = f"🎫 {result['ref_id']} | ⏰ {result['timestamp'][:19]}"
-    reply_out     = result['reply']
+    priority_out = f"🚨 {result['priority'].upper()}"
+    dept_out = f"🏢 {result['department']}\n📧 {result['email']}\n⏱️ SLA: {result['sla']}"
+    top3_out = "\n".join([f"  {c}: {p*100:.1f}%" for c, p in result['top3']])
+    ref_out = f"🎫 {result['ref_id']} | ⏰ {result['timestamp'][:19]}"
+    reply_out = result['reply']
     return category_out, priority_out, dept_out, top3_out, ref_out, reply_out
 
 SAMPLE_TICKETS = {
@@ -168,7 +177,7 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
                     lines=6,
                     placeholder="Paste email, chat message, bug report, HR query..."
                 )
-                diff_agent = gr.Radio(["easy","medium","hard"], value="medium", label="Model Difficulty")
+                diff_agent = gr.Radio(["easy", "medium", "hard"], value="medium", label="Model Difficulty")
                 btn_process = gr.Button("🚀 Process Ticket", variant="primary")
             with gr.Column(scale=2):
                 ref_out_box = gr.Textbox(label="🎫 Reference ID & Timestamp")
@@ -186,7 +195,7 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
         )
 
     with gr.Tab("🎮 Interactive Demo"):
-        diff = gr.Radio(["easy","medium","hard"], value="easy", label="Difficulty")
+        diff = gr.Radio(["easy", "medium", "hard"], value="easy", label="Difficulty")
         btn_create = gr.Button("Create Environment", variant="primary")
         status = gr.Textbox(label="Status")
         with gr.Row():
@@ -202,7 +211,7 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
     with gr.Tab("📊 Baseline Evaluation"):
         gr.Markdown("TF-IDF + Logistic Regression baseline — models pre-trained at startup for instant results.")
         btn_eval = gr.Button("Run All Tasks", variant="primary")
-        score_table = gr.Dataframe(headers=["Task","Score","Accuracy","Time"], label="Results")
+        score_table = gr.Dataframe(headers=["Task", "Score", "Accuracy", "Time"], label="Results")
         btn_eval.click(run_baseline_all, outputs=score_table)
 
     with gr.Tab("📋 Environment Info"):
@@ -220,13 +229,15 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
 `Ticket Input` → `ML Classify` → `Rule Priority` → `Department Route` → `Auto Reply`
 
 ## API Endpoints (port 7861)
-- `POST /api/reset` — `{"difficulty": "easy", "seed": 42}`
-- `POST /api/step` — `{"action": 0}`
-- `POST /api/agent/process` — `{"text": "my invoice is wrong", "difficulty": "medium"}`
-- `POST /api/agent/classify` — `{"text": "urgent bug", "difficulty": "easy"}`
+- `GET /health`
+- `POST /api/reset`
+- `POST /api/step`
+- `POST /api/run`
+- `POST /api/agent/process`
+- `POST /api/agent/classify`
         """)
 
 if __name__ == "__main__":
     t = threading.Thread(target=run_flask, daemon=True)
     t.start()
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
