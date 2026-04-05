@@ -2,6 +2,7 @@ flask
 scikit-learn
 numpy
 gymnasium
+gradio==3.50.2
+transformers
+torch
 huggingface_hub>=0.12.0,<0.16.0
-
-
