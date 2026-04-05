@@ -2,6 +2,6 @@ flask
 scikit-learn
 numpy
 gymnasium
-huggingface_hub>=0.21.0,<1.0.0
+huggingface_hub>=0.12.0,<0.16.0
 
 
