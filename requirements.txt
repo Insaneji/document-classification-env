@@ -1,4 +1,3 @@
-﻿gradio==6.11.8
 flask
 scikit-learn
 numpy
