@@ -1,6 +1,8 @@
-﻿import gradio as gr
+import gradio as gr
 import threading
 from flask import Flask, request, jsonify
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from environment import DocumentClassificationEnv
 from baseline_inference import run_task, load_or_train
 from agent import TicketAgent
@@ -178,9 +180,31 @@ with gr.Blocks(title="Document Classification OpenEnv") as demo:
     with gr.Tab("Environment Info"):
         gr.Markdown("## API Endpoints (port 7861)\n- POST /api/reset\n- POST /api/step\n- POST /api/run\n- POST /api/agent/process\n- POST /api/agent/classify")
 
+# Mount /reset and /step on Gradio's FastAPI app for the hackathon checker
+@demo.app.post("/reset")
+async def reset_endpoint(request: Request):
+    data = await request.json()
+    difficulty = data.get("difficulty", "easy")
+    seed = data.get("seed", 42)
+    env = DocumentClassificationEnv(task_difficulty=difficulty, seed=seed)
+    obs, _ = env.reset(seed=seed)
+    api_envs["current"] = env
+    return JSONResponse({"observation": {k: v.tolist() if hasattr(v, "tolist") else v for k, v in obs.items()}})
+
+@demo.app.post("/step")
+async def step_endpoint(request: Request):
+    data = await request.json()
+    action = data.get("action", 0)
+    env = api_envs.get("current")
+    if env is None:
+        return JSONResponse({"error": "Call /reset first"}, status_code=400)
+    obs, reward, done, _, info = env.step(int(action))
+    return JSONResponse({
+        "observation": {k: v.tolist() if hasattr(v, "tolist") else v for k, v in obs.items()},
+        "reward": reward, "done": done, "info": info
+    })
+
 if __name__ == "__main__":
     t = threading.Thread(target=run_flask, daemon=True)
     t.start()
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
-
-
+    demo.launch(server_name="0.0.0.0", server_port=7860)
