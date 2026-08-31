@@ -1,7 +1,7 @@
 ---
 title: Document Classification Env
 emoji: 📋
-colorFrom: red
+colorFrom: green
 colorTo: blue
 sdk: gradio
 sdk_version: 3.50.2
